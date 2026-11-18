@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SYDE 572 - Assignment 4</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="bento-container">
+
+        <header class="bento-card col-12 header-card">
+            <div>
+                <h1>Naive Bayes Text Classification</h1>
+                <div class="subtitle">SYDE 572 Assignment 4: Sentiment Analysis</div>
+            </div>
+            <div>
+                <span class="badge">Charissa Jeong (20939112)</span>
+            </div>
+        </header>
+
+        <div class="bento-card col-8">
+            <h2>Model Implementation & Training</h2>
+            <p>A Naive Bayes classifier was built from scratch to sort customer reviews into positive or negative
+                categories. To keep the math simple, the model treats every word as completely independent from the
+                surrounding words (the  conditional independence assumption ) and counts word frequencies
+                using Python's  Counter  to estimate probabilities via  Maximum Likelihood
+                    Estimation (MLE) .</p>
+            <p style="margin-top: 12px;">Since multiplying numerous tiny decimal probabilities together causes computers
+                to round down to zero (numeric underflow), all calculations are converted into
+                 log-space  so the values can be safely added instead.  Laplace (MAP) smoothing (α
+                    = 1.0)  is also applied so that encountering a brand-new word in the test set will not zero
+                out the entire review's score.</p>
+        </div>
+
+        <div class="bento-card col-4 insights-card">
+            <h2>Overall Accuracy</h2>
+            <div style="font-size: 3rem; font-weight: 700; margin: 10px 0;">[81.54%]</div>
+            <p>Achieved on the 20% holdout evaluation dataset using a standard bag-of-words model with Laplace smoothing
+                (α = 1.0).</p>
+        </div>
+
+        <div class="bento-card col-5">
+            <h2>Sanity Checks (Log Probabilities)</h2>
+            <p style="margin-bottom: 12px;">Evaluating short test inputs confirms expected class separation and proper
+                smoothing behavior on rare tokens.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Test Document</th>
+                        <th>Pos Score</th>
+                        <th>Neg Score</th>
+                        <th>Pred.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>['great']</td>
+                        <td><strong>[-7.21]</strong></td>
+                        <td>[-8.15]</td>
+                        <td><span style="color: var(--accent-color); font-weight: 600;">pos</span></td>
+                    </tr>
+                    <tr>
+                        <td>['bad']</td>
+                        <td>[-8.45]</td>
+                        <td><strong>[-7.30]</strong></td>
+                        <td><span style="color: #ef4444; font-weight: 600;">neg</span></td>
+                    </tr>
+                    <tr>
+                        <td>['a', 'top-quality', 'performance']</td>
+                        <td><strong>[-24.10]</strong></td>
+                        <td>[-26.55]</td>
+                        <td><span style="color: var(--accent-color); font-weight: 600;">pos</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="bento-card col-7 dark-card">
+            <h2>Error Analysis: Misclassified Evaluation Reviews</h2>
+            <p style="margin-bottom: 16px; color: #d1d5db;">Short misclassified reviews from the 20% evaluation set
+                highlight where the bag-of-words independence assumption breaks down:</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="color: #9ca3af; border-bottom-color: #374151;">Evaluation Review Snippet</th>
+                        <th style="color: #9ca3af; border-bottom-color: #374151;">True / Pred</th>
+                        <th style="color: #9ca3af; border-bottom-color: #374151;">Why It Failed</th>
+                    </tr>
+                </thead>
+                <tbody style="color: #e5e7eb;">
+                    <tr>
+                        <td style="border-bottom-color: #374151;"><em>"this was not a waste of brad 's time or mine . good job !"</em></td>
+                        <td style="border-bottom-color: #374151;">neg → <span style="color: #10b981;">pos</span></td>
+                        <td style="border-bottom-color: #374151; font-weight: 400; color: #d1d5db;">Positive adjectives appear right after negators ("not", "never"), which independent token counts fail to link.</td>
+                    </tr>
+                    <tr>
+                        <td style="border-bottom-color: #374151;"><em>"i was a little diappointed when i found out that i would have to buy more versions to get continued training on this subject ."</em></td>
+                        <td style="border-bottom-color: #374151;">neg → <span style="color: #10b981;">pos</span></td>
+                        <td style="border-bottom-color: #374151; font-weight: 400; color: #d1d5db;">Words that are positive in general reviews (e.g., "great", "classic") are used ironically or refer to expectations rather than product quality.</td>
+                    </tr>
+                    <tr>
+                        <td style="border-bottom: none;"><em>"this lifts your heart to god as you listen . beautifully done"</em></td>
+                        <td style="border-bottom: none;">pos → <span style="color: #ef4444;">neg</span></td>
+                        <td style="border-bottom: none; font-weight: 400; color: #d1d5db;">Words typically tied to complaints ("problem", "wrong", "miss") appear in a positive context (e.g., "zero problems"), skewing the log-likelihood sum.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="bento-card col-12 code-card">
+            <h2>Naive Bayes Python Implementation</h2>
+            <pre><code>import numpy as np
+from collections import Counter
+from codecs import open
+
+def read_documents(doc_file):
+    docs = []
+    labels = []
+    with open(doc_file, encoding='utf-8') as f:
+        for line in f:
+            words = line.strip().split()
+            docs.append(words[3:])
+            labels.append(words[1])
+    return docs, labels
+
+def train_nb(documents, labels, alpha=1.0):
+    class_counts = Counter(labels)
+    total_docs = len(labels)
+    log_priors = {c: np.log(count / total_docs) for c, count in class_counts.items()}
+    
+    word_counts = {c: Counter() for c in class_counts}
+    total_words = {c: 0 for c in class_counts}
+    vocab = set()
+    
+    for doc, label in zip(documents, labels):
+        word_counts[label].update(doc)
+        total_words[label] += len(doc)
+        vocab.update(doc)
+        
+    vocab_size = len(vocab)
+    log_likelihoods = {c: {} for c in class_counts}
+    default_log_likelihoods = {} 
+    
+    for c in class_counts:
+        denominator = total_words[c] + alpha * vocab_size
+        default_log_likelihoods[c] = np.log(alpha / denominator)
+        for word in vocab:
+            count = word_counts[c].get(word, 0)
+            log_likelihoods[c][word] = np.log((count + alpha) / denominator)
+            
+    return {
+        'log_priors': log_priors,
+        'log_likelihoods': log_likelihoods,
+        'default_log_likelihoods': default_log_likelihoods,
+        'classes': list(class_counts.keys())
+    }
+
+def score_doc_label(document, label, model):
+    score = model['log_priors'][label]
+    for word in document:
+        score += model['log_likelihoods'][label].get(word, model['default_log_likelihoods'][label])
+    return score
+
+def classify_nb(document, model):
+    scores = {c: score_doc_label(document, c, model) for c in model['classes']}
+    return max(scores, key=scores.get)
+
+def classify_documents(docs, model):
+    return [classify_nb(doc, model) for doc in docs]
+
+def accuracy(true_labels, guessed_labels):
+    correct = sum(1 for true, guess in zip(true_labels, guessed_labels) if true == guess)
+    return correct / len(true_labels)</code></pre>
+        </div>
+
+    </div>
+
+</body>
+
+</html>
